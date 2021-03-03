@@ -2,7 +2,9 @@ package rmq
 
 import (
 	"context"
+	"errors"
 	"github.com/go-redis/redis/v8"
+	"time"
 )
 
 const UnAckPrefix = "UnAck:"
@@ -17,11 +19,12 @@ type RMQClient struct {
 	unAckKey    string
 }
 
-func NewRMQClient(redisClient redis.Cmdable, queueName string) {
+func NewRMQClient(redisClient redis.Cmdable, queueName string) *RMQClient {
 	client := RMQClient{}
 	client.redisClient = redisClient
 	client.queueName = queueName
 	client.unAckKey = UnAckPrefix + client.queueName
+	return &client
 }
 
 // Messages May be consumed more than once
@@ -59,12 +62,23 @@ func (client *RMQClient) AddMessage(message string) error {
 	return err
 }
 
-func (client *RMQClient) ReadMessage(queueName string) (string, error) {
-	message, err := client.redisClient.RPop(context.Background(), queueName).Result()
+func (client *RMQClient) ReadMessage() (string, error) {
+	message, err := client.redisClient.RPop(context.Background(), client.queueName).Result()
 	if err != nil {
 		return "", err
 	}
 	return message, nil
+}
+
+func (client *RMQClient) BlockReadMessage(timeout time.Duration) (string, error) {
+	msgList, err := client.redisClient.BRPop(context.Background(), timeout, client.queueName).Result()
+	if err != nil {
+		return "", err
+	}
+	if len(msgList) == 2 {
+		return msgList[1], nil
+	}
+	return "", errors.New("unknow error")
 }
 
 func (client *RMQClient) Ack(message string) error {
